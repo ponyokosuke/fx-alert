@@ -405,10 +405,51 @@ def run_test_call(cfg: dict, logger: logging.Logger):
     logger.info("電話テスト発信: " + ("成功" if ok else "失敗。Twilioの設定を確認してください。"))
 
 
+def run_daily_report(cfg: dict, logger: logging.Logger):
+    """しきい値に関係なく、全銘柄の現在値を1通のLINEにまとめて送る生存確認レポート"""
+    targets = cfg["targets"]
+    tickers = list(targets.values())
+    n = len(tickers)
+    now = datetime.now(JST)
+
+    try:
+        data = fetch_prices(tickers)
+    except Exception as e:
+        logger.error(f"価格取得に失敗しました: {e}")
+        send_line_broadcast(
+            cfg["line_channel_access_token"],
+            f"⚠ 定期確認（{now.strftime('%Y-%m-%d %H:%M')} JST）\n"
+            f"価格取得に失敗しました。システムに問題がある可能性があります。",
+        )
+        return
+
+    lookback = cfg["lookback_minutes"]
+    lookback_bars = max(1, lookback // 5)
+
+    lines = [f"📊 定期確認（{now.strftime('%Y-%m-%d(%a) %H:%M')} JST）", "システムは正常に稼働しています。", ""]
+    for name, ticker in targets.items():
+        series = get_close_series(data, ticker, n)
+        if series is None or len(series) < 1:
+            lines.append(f"・{name}: データ取得不可（市場クローズの可能性）")
+            continue
+        latest_price = float(series.iloc[-1])
+        if len(series) >= lookback_bars + 1:
+            past_price = float(series.iloc[-(lookback_bars + 1)])
+            change_pct = (latest_price - past_price) / past_price * 100 if past_price else 0.0
+            lines.append(f"・{name}: {latest_price:.4f}（{lookback}分前比 {change_pct:+.2f}%）")
+        else:
+            lines.append(f"・{name}: {latest_price:.4f}")
+
+    text = "\n".join(lines)
+    ok = send_line_broadcast(cfg["line_channel_access_token"], text)
+    logger.info("定期確認レポート送信: " + ("成功" if ok else "失敗"))
+
+
 def main():
     parser = argparse.ArgumentParser(description="為替・コモディティ急変動アラート（クラウド版）")
     parser.add_argument("--test-line", action="store_true")
     parser.add_argument("--test-call", action="store_true")
+    parser.add_argument("--daily-report", action="store_true", help="しきい値に関係なく全銘柄の現在値をLINEに送る（生存確認用）")
     parser.add_argument("--once", action="store_true", help="互換性のためのフラグ（クラウド版は常に1回だけ実行）")
     parser.add_argument("--off-today", action="store_true")
     parser.add_argument("--off-until", metavar="YYYY-MM-DD")
@@ -461,6 +502,9 @@ def main():
             logger.error("Twilioの設定が未完了です。")
             sys.exit(1)
         run_test_call(cfg, logger)
+        return
+    if args.daily_report:
+        run_daily_report(cfg, logger)
         return
 
     # ---- ここから通常の1回チェック ----
