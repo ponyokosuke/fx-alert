@@ -4,7 +4,15 @@ on:
   schedule:
     # 5分おきに実行（GitHub Actionsの仕様上、実際の実行タイミングは数分前後する場合があります）
     - cron: "*/5 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "実行モード（test-lineでLINEへのテスト送信のみ行う）"
+        type: choice
+        options:
+          - check
+          - test-line
+        default: check
 
 permissions:
   contents: write
@@ -35,7 +43,13 @@ jobs:
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
           TWILIO_TO_NUMBER: ${{ secrets.TWILIO_TO_NUMBER }}
-        run: python fx_commodity_alert.py
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          if [ "$MODE" = "test-line" ]; then
+            python fx_commodity_alert.py --test-line
+          else
+            python fx_commodity_alert.py
+          fi
 
       - name: 状態(state.json)をコミット
         run: |
