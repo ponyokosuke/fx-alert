@@ -1,0 +1,72 @@
+name: 設定変更（今日はオフ／夜間通知の本数・間隔）
+
+on:
+  workflow_dispatch:
+    inputs:
+      off_today:
+        description: "今日だけ監視をオフにする"
+        type: boolean
+        default: false
+      off_until:
+        description: "指定日まで監視をオフにする（YYYY-MM-DD、空欄なら無視）"
+        type: string
+        default: ""
+      turn_on:
+        description: "オフ設定を解除してONに戻す"
+        type: boolean
+        default: false
+      night_count:
+        description: "夜間LINEバーストの通数を変更（空欄なら変更しない）"
+        type: string
+        default: ""
+      night_interval:
+        description: "夜間LINEバーストの間隔・秒を変更（空欄なら変更しない）"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  update-control:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存パッケージをインストール
+        run: pip install -r requirements.txt
+
+      - name: 設定を更新
+        run: |
+          set -e
+          if [ "${{ inputs.off_today }}" = "true" ]; then
+            python fx_commodity_alert.py --off-today
+          fi
+          if [ -n "${{ inputs.off_until }}" ]; then
+            python fx_commodity_alert.py --off-until "${{ inputs.off_until }}"
+          fi
+          if [ "${{ inputs.turn_on }}" = "true" ]; then
+            python fx_commodity_alert.py --on
+          fi
+          if [ -n "${{ inputs.night_count }}" ] && [ -n "${{ inputs.night_interval }}" ]; then
+            python fx_commodity_alert.py --set-night-count "${{ inputs.night_count }}" --set-night-interval "${{ inputs.night_interval }}"
+          elif [ -n "${{ inputs.night_count }}" ]; then
+            python fx_commodity_alert.py --set-night-count "${{ inputs.night_count }}"
+          elif [ -n "${{ inputs.night_interval }}" ]; then
+            python fx_commodity_alert.py --set-night-interval "${{ inputs.night_interval }}"
+          fi
+          python fx_commodity_alert.py --status
+
+      - name: 変更をコミット
+        run: |
+          git config user.name "fx-alert-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control.json
+          git diff --cached --quiet || git commit -m "chore: update control settings [skip ci]"
+          git push
